@@ -1,0 +1,68 @@
+- name: Fetch elasticsearch source archive search version.
+  become: yes
+  get_url: 
+    dest: "/tmp/{{ es_pkg_name}}.tar.gz" 
+    url: "https://download.elasticsearch.org/elasticsearch/elasticsearch/{{ es_pkg_name }}.tar.gz"
+    force: yes
+
+- name: untar the elasticsearch source archive
+  become: yes
+  unarchive:
+    remote_src: yes 
+    src: "/tmp/{{ es_pkg_name }}.tar.gz"
+    dest: /tmp 
+    mode: 0755
+
+- name: Check and see if the elasticsearch dir has been created
+  stat:
+    path: /usr/share/elasticsearch
+  register: es_home_exists
+
+- name: Copy the unarchived elasticsearch to main directory
+  become: yes
+  command: "mv /tmp/{{ es_pkg_name }} /usr/share/elasticsearch"
+  when: not es_home_exists
+
+- name: Configure Elasticsearch
+  become: yes
+  template:
+    src: elasticsearch.yml
+    dest: /etc/elasticsearch/elasticsearch.yml
+    owner: root
+    group: elasticsearch
+    mode: 0750
+  notify: restart elasticsearch
+
+- name: install elastic search service files
+  become: yes
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+  with_items:
+    - { src: elasticsearch.service, dest: /lib/systemd/system/elasticsearch.service }
+  tags:
+    - elasticsearch-service
+
+- name: Start Elasticsearch
+  become: yes
+  service:
+    name: elasticsearch
+    state: started
+    enabled: yes
+
+- name: Check and see if the elasticsearch dir has been created
+  stat:
+    path: /usr/share/elasticsearch/plugins/analysis-icu
+  register: icu_plugin_exists
+
+- name: Install the ICU plugin
+  become: yes
+  command: "{{ es_home }}/bin/plugin install elasticsearch/elasticsearch-analysis-icu/2.6.0"
+  when: not icu_plugin_exists
+
+- name: Make sure Elasticsearch is running
+  wait_for: 
+    host: "{{ es_network_host }}"
+    port: "{{ es_http_port }}"
+    delay: 3
+    timeout: 300
